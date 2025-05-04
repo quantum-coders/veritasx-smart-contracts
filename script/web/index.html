@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Canvas Interactivo Mantle</title>
+	<meta charset="UTF-8">
+	<style>
+		body {
+			font-family: Arial, sans-serif;
+			margin: 20px;
+			max-width: 1200px;
+			margin: 0 auto;
+		}
+
+		h1, h2 {
+			color: #333;
+		}
+
+		.container {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 20px;
+		}
+
+		.panel {
+			background: #f9f9f9;
+			padding: 15px;
+			border-radius: 8px;
+			box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+		}
+
+		.canvas-container {
+			width: 512px;
+			height: 512px;
+		}
+
+		.controls {
+			width: 300px;
+		}
+
+		.row {
+			display: flex;
+		}
+
+		.pixel {
+			width: 16px;
+			height: 16px;
+			border: 1px solid #eee;
+		}
+
+		.pixel:hover {
+			opacity: 0.8;
+			cursor: pointer;
+		}
+
+		button {
+			background: #4CAF50;
+			color: white;
+			border: none;
+			padding: 10px 15px;
+			border-radius: 4px;
+			cursor: pointer;
+			margin: 5px 0;
+		}
+
+		button:hover {
+			background: #45a049;
+		}
+
+		input {
+			padding: 8px;
+			margin: 5px 0;
+			width: 100%;
+			box-sizing: border-box;
+		}
+
+		.status {
+			margin-top: 10px;
+			padding: 10px;
+			background: #f0f0f0;
+			border-radius: 4px;
+		}
+
+		.pixel-info {
+			margin-top: 15px;
+		}
+
+		.loading {
+			margin-top: 10px;
+		}
+
+		.progress-bar {
+			height: 20px;
+			background: #ddd;
+			border-radius: 10px;
+			overflow: hidden;
+			margin-top: 5px;
+		}
+
+		.progress-fill {
+			height: 100%;
+			background: #4CAF50;
+			width: 0%;
+			transition: width 0.3s;
+		}
+	</style>
+</head>
+<body>
+	<h1>Canvas Interactivo en Mantle</h1>
+
+	<div class="container">
+		<div class="panel controls">
+			<h2>Controles</h2>
+
+			<div>
+				<button id="connectBtn">Conectar MetaMask</button>
+				<div id="account" class="status"></div>
+			</div>
+
+			<div id="pixelForm" style="margin-top: 20px;">
+				<h3>Establecer Pixel</h3>
+				<div>
+					<label>Posición X:
+						<input type="number" id="x" min="0" max="31" value="0">
+					</label>
+				</div>
+				<div>
+					<label>Posición Y:
+						<input type="number" id="y" min="0" max="31" value="0">
+					</label>
+				</div>
+				<div>
+					<label>Color:
+						<input type="color" id="color" value="#FF0000">
+					</label>
+				</div>
+				<button id="setPixelBtn">Establecer Pixel</button>
+			</div>
+
+			<div class="status" id="result">
+				Esperando conexión...
+			</div>
+
+			<div class="loading" id="loading" style="display: none;">
+				<div>Cargando canvas...</div>
+				<div class="progress-bar">
+					<div class="progress-fill" id="progressFill"></div>
+				</div>
+			</div>
+		</div>
+
+		<div class="panel">
+			<h2>Canvas Actual</h2>
+			<div id="canvasContainer" class="canvas-container">
+				<!-- El canvas se generará aquí -->
+			</div>
+			<button id="refreshBtn">Refrescar Canvas</button>
+		</div>
+
+		<div class="panel">
+			<h2>Información del Pixel</h2>
+			<div id="pixelInfo" class="pixel-info">
+				Haz clic en un pixel para ver su información
+			</div>
+		</div>
+	</div>
+
+	<!-- Incluimos la librería desde unpkg -->
+	<script src="https://unpkg.com/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+
+	<script>
+		document.addEventListener('DOMContentLoaded', function() {
+			console.log('DOM cargado');
+
+			// Verificar ethers
+			setTimeout(function() {
+				console.log('Verificando ethers...');
+				if(typeof ethers === 'undefined') {
+					document.getElementById('result').textContent =
+						'Error: ethers no está disponible. Intenta otro navegador.';
+				} else {
+					document.getElementById('result').textContent =
+						'Ethers cargado correctamente. Puedes conectar MetaMask.';
+
+					// Configuración después de verificar ethers
+					setupApp();
+				}
+			}, 1000); // Damos tiempo para que se cargue la librería
+		});
+
+		function setupApp() {
+			// Configuración del contrato
+			const contractAddress = '0x76b595369AC78435a6a42B1D59aC820A9E185B54';
+
+			// ABI completo para interactuar con todas las funciones
+			const abi = [
+				{
+					'inputs': [
+						{ 'name': 'x', 'type': 'uint256' },
+						{ 'name': 'y', 'type': 'uint256' },
+						{ 'name': 'color', 'type': 'string' },
+					],
+					'name': 'setPixel',
+					'outputs': [],
+					'stateMutability': 'nonpayable',
+					'type': 'function',
+				},
+				{
+					'inputs': [
+						{ 'name': 'x', 'type': 'uint256' },
+						{ 'name': 'y', 'type': 'uint256' },
+					],
+					'name': 'getPixel',
+					'outputs': [
+						{ 'name': 'owner', 'type': 'address' },
+						{ 'name': 'color', 'type': 'string' },
+						{ 'name': 'timestamp', 'type': 'uint256' },
+					],
+					'stateMutability': 'view',
+					'type': 'function',
+				},
+				{
+					'inputs': [],
+					'name': 'canvasWidth',
+					'outputs': [ { 'name': '', 'type': 'uint256' } ],
+					'stateMutability': 'view',
+					'type': 'function',
+				},
+				{
+					'inputs': [],
+					'name': 'canvasHeight',
+					'outputs': [ { 'name': '', 'type': 'uint256' } ],
+					'stateMutability': 'view',
+					'type': 'function',
+				},
+			];
+
+			// Variables
+			let provider, signer, contract;
+			let canvasWidth = 32;
+			let canvasHeight = 32;
+			let selectedPixel = null;
+
+			// Elementos DOM
+			const connectBtn = document.getElementById('connectBtn');
+			const setPixelBtn = document.getElementById('setPixelBtn');
+			const refreshBtn = document.getElementById('refreshBtn');
+			const resultEl = document.getElementById('result');
+			const accountEl = document.getElementById('account');
+			const canvasContainer = document.getElementById('canvasContainer');
+			const pixelInfoEl = document.getElementById('pixelInfo');
+			const loadingEl = document.getElementById('loading');
+			const progressFillEl = document.getElementById('progressFill');
+
+			// Función para conectar wallet
+			connectBtn.addEventListener('click', async function() {
+				try {
+					if(!window.ethereum) {
+						throw new Error('MetaMask no está instalado');
+					}
+
+					resultEl.textContent = 'Solicitando conexión...';
+
+					const accounts = await window.ethereum.request({
+						method: 'eth_requestAccounts',
+					});
+					const account = accounts[0];
+
+					provider = new ethers.providers.Web3Provider(window.ethereum);
+					signer = provider.getSigner();
+					contract = new ethers.Contract(contractAddress, abi, signer);
+
+					accountEl.textContent = 'Conectado: ' + account.substring(0, 6) + '...' + account.substring(38);
+					resultEl.textContent = 'Conexión exitosa. Cargando canvas...';
+
+					// Cargamos el canvas después de conectar
+					await loadCanvasDimensions();
+					await createCanvas();
+					await loadCanvas();
+
+				} catch(error) {
+					resultEl.textContent = 'Error de conexión: ' + error.message;
+					console.error(error);
+				}
+			});
+
+			// Función para cargar dimensiones del canvas
+			async function loadCanvasDimensions() {
+				try {
+					if(!contract) return;
+
+					// Intentar leer dimensiones del contrato
+					try {
+						const width = await contract.canvasWidth();
+						const height = await contract.canvasHeight();
+
+						canvasWidth = width.toNumber();
+						canvasHeight = height.toNumber();
+
+						console.log(`Dimensiones del canvas: ${ canvasWidth }x${ canvasHeight }`);
+					} catch(error) {
+						console.error('Error al leer dimensiones:', error);
+						// Si falla, usamos los valores por defecto (32x32)
+					}
+
+					// Actualizar límites de los inputs
+					document.getElementById('x').max = canvasWidth - 1;
+					document.getElementById('y').max = canvasHeight - 1;
+
+				} catch(error) {
+					console.error('Error al cargar dimensiones:', error);
+				}
+			}
+
+			// Función para crear el grid del canvas
+			async function createCanvas() {
+				canvasContainer.innerHTML = ''; // Limpiar
+
+				// Crear grid de pixels
+				for(let y = 0; y < canvasHeight; y++) {
+					const row = document.createElement('div');
+					row.className = 'row';
+
+					for(let x = 0; x < canvasWidth; x++) {
+						const pixel = document.createElement('div');
+						pixel.className = 'pixel';
+						pixel.style.backgroundColor = '#FFFFFF'; // Blanco por defecto
+						pixel.dataset.x = x;
+						pixel.dataset.y = y;
+
+						// Evento click para seleccionar pixel
+						pixel.addEventListener('click', function() {
+							const x = parseInt(this.dataset.x);
+							const y = parseInt(this.dataset.y);
+							selectPixel(x, y);
+						});
+
+						row.appendChild(pixel);
+					}
+
+					canvasContainer.appendChild(row);
+				}
+			}
+
+			// Función para cargar el estado actual del canvas
+			async function loadCanvas() {
+				if(!contract) {
+					resultEl.textContent = 'Conecta MetaMask primero para ver el canvas';
+					return;
+				}
+				console.log('--- DEBUG: Intentando cargar SÓLO el pixel (5, 4) ---');
+				resultEl.textContent = 'Intentando cargar pixel (5, 4)...';
+				loadingEl.style.display = 'block'; // Mostrar carga
+				progressFillEl.style.width = '50%'; // Progreso simulado
+
+				try {
+					// Llama directamente a la función que falla
+					await loadPixelData(5, 4);
+					console.log('--- DEBUG: Llamada a loadPixelData(5, 4) completada (revisar consola para errores internos) ---');
+					resultEl.textContent = 'Llamada a pixel (5, 4) terminada.'; // Actualizar estado
+				} catch(error) {
+					// Este catch es por si loadPixelData *en sí mismo* falla, no la llamada interna a getPixel
+					console.error('--- DEBUG: Error en la función loadPixelData wrapper:', error);
+					resultEl.textContent = 'Error wrapper al cargar (5, 4): ' + error.message;
+				} finally {
+					// Ocultar carga después de un tiempo
+					setTimeout(() => { loadingEl.style.display = 'none'; }, 1000);
+				}
+
+				// Comenta o elimina el bucle original por ahora
+				/*
+				try {
+					loadingEl.style.display = "block";
+					// ... Bucle original ...
+				} catch (error) {
+					// ... Catch original ...
+				} finally {
+					 // ... Finally original ...
+				}
+				*/
+			}
+
+			// Función para cargar datos de un pixel
+			async function loadPixelData(x, y) {
+				try {
+					// Obtener datos del pixel
+					const pixel = await contract.getPixel(x, y);
+
+					if(pixel) {
+						// Obtener elementos
+						const owner = pixel[0];
+						const color = pixel[1];
+						const timestamp = pixel[2];
+
+						// Si el color no está vacío, actualizamos el grid
+						if(color && color !== '') {
+							const pixelElement = canvasContainer.querySelector(`.pixel[data-x="${ x }"][data-y="${ y }"]`);
+							if(pixelElement) {
+								pixelElement.style.backgroundColor = color;
+
+								// Datos para tooltip
+								pixelElement.title = `(${ x },${ y }) - ${ color }\nOwner: ${ owner }`;
+							}
+						}
+					}
+				} catch(error) {
+					console.error(`Error al cargar pixel (${ x },${ y }):`, error);
+				}
+			}
+
+			// Función para seleccionar un pixel
+			async function selectPixel(x, y) {
+				// Guardar selección
+				selectedPixel = { x, y };
+
+				// Actualizar campos
+				document.getElementById('x').value = x;
+				document.getElementById('y').value = y;
+
+				// Intentar obtener datos del pixel
+				try {
+					pixelInfoEl.innerHTML = `<div>Cargando información del pixel (${ x }, ${ y })...</div>`;
+
+					const pixel = await contract.getPixel(x, y);
+					const owner = pixel[0];
+					const color = pixel[1];
+					const timestamp = pixel[2].toNumber();
+
+					// Convertir timestamp a fecha
+					const date = new Date(timestamp * 1000);
+					const dateStr = date.toLocaleString();
+
+					// Actualizar color en el selector si existe
+					if(color && color !== '') {
+						document.getElementById('color').value = color;
+					}
+
+					// Mostrar info
+					pixelInfoEl.innerHTML = `
+                        <div style="border: 1px solid #ddd; padding: 10px; border-radius: 5px;">
+                            <h3>Pixel (${ x }, ${ y })</h3>
+                            <div style="margin: 5px 0;">
+                                <strong>Color:</strong>
+                                <span style="display: inline-block; width: 15px; height: 15px; background-color: ${ color || '#FFFFFF' }; border: 1px solid #ccc; vertical-align: middle;"></span>
+                                ${ color || 'No establecido' }
+                            </div>
+                            <div style="margin: 5px 0;">
+                                <strong>Propietario:</strong>
+                                ${ owner === ethers.constants.AddressZero ? 'Ninguno' : owner }
+                            </div>
+                            <div style="margin: 5px 0;">
+                                <strong>Última modificación:</strong>
+                                ${ timestamp === 0 ? 'Nunca' : dateStr }
+                            </div>
+                        </div>
+                    `;
+				} catch(error) {
+					console.error('Error al cargar datos del pixel:', error);
+					pixelInfoEl.innerHTML = `<div class="status">Error al cargar información: ${ error.message }</div>`;
+				}
+			}
+
+			// Función para establecer pixel
+			setPixelBtn.addEventListener('click', async function() {
+				try {
+					if(!contract) {
+						throw new Error('Primero conecta tu wallet');
+					}
+
+					const x = parseInt(document.getElementById('x').value);
+					const y = parseInt(document.getElementById('y').value);
+					const color = document.getElementById('color').value;
+
+					// Validar
+					if(x < 0 || x >= canvasWidth || y < 0 || y >= canvasHeight) {
+						throw new Error(`Coordenadas inválidas. Deben estar entre (0,0) y (${ canvasWidth - 1 },${ canvasHeight - 1 })`);
+					}
+
+					resultEl.textContent = 'Enviando transacción...';
+
+					// Transacción con gas alto para Mantle
+					const tx = await contract.setPixel(x, y, color, {
+						gasLimit: 2000000,
+						type: 0,
+					});
+
+					resultEl.textContent = 'Transacción enviada. Esperando confirmación...';
+
+					// Esperar confirmación
+					const receipt = await tx.wait();
+					resultEl.textContent = '¡Pixel establecido correctamente!';
+
+					// Actualizar el pixel en el canvas directamente
+					const pixelElement = canvasContainer.querySelector(`.pixel[data-x="${ x }"][data-y="${ y }"]`);
+					if(pixelElement) {
+						pixelElement.style.backgroundColor = color;
+					}
+
+					// Refrescar información si es el pixel seleccionado
+					if(selectedPixel && selectedPixel.x === x && selectedPixel.y === y) {
+						selectPixel(x, y);
+					}
+
+				} catch(error) {
+					resultEl.textContent = 'Error: ' + error.message;
+					console.error(error);
+				}
+			});
+
+			// Botón para refrescar canvas
+			refreshBtn.addEventListener('click', function() {
+				loadCanvas();
+			});
+		}
+	</script>
+</body>
+</html>
